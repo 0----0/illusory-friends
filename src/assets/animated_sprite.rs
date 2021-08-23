@@ -1,30 +1,36 @@
+use super::Asset;
+use crate::types::Rect;
+use async_trait::async_trait;
+use macroquad::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
-use crate::types::Rect;
-use macroquad::prelude::*;
-use super::Asset;
-use async_trait::async_trait;
 
 mod deserialize {
-    use serde::Deserialize;
     use crate::types::Rect;
+    use serde::Deserialize;
 
     #[derive(Deserialize)]
-    #[serde(remote="Rect")]
+    #[serde(remote = "Rect")]
     struct RectDef {
-        x: f32, y: f32, w: f32, h: f32
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
     }
 
     #[derive(Deserialize)]
     struct Size {
-        w: f32, h: f32
+        w: f32,
+        h: f32,
     }
 
     impl Size {
         fn relativize(&self, rect: &Rect) -> Rect {
             Rect {
-                x: rect.x / self.w, y: rect.y / self.h,
-                w: rect.w / self.w, h: rect.h / self.h
+                x: rect.x / self.w,
+                y: rect.y / self.h,
+                w: rect.w / self.w,
+                h: rect.h / self.h,
             }
         }
     }
@@ -32,12 +38,12 @@ mod deserialize {
     #[derive(Deserialize)]
     #[serde(rename_all(deserialize = "camelCase"))]
     struct Frame {
-        #[serde(with="RectDef")]
+        #[serde(with = "RectDef")]
         frame: Rect,
-        #[serde(with="RectDef")]
+        #[serde(with = "RectDef")]
         sprite_source_size: Rect,
         source_size: Size,
-        duration: f32
+        duration: f32,
     }
     impl Frame {
         fn convert(&self, size: &Size) -> super::Frame {
@@ -45,15 +51,20 @@ mod deserialize {
             // let r_source_size = size.relativize(&self.sprite_source_size);
             super::Frame {
                 src: self.frame,
-                offset: [self.sprite_source_size.x - self.source_size.w / 2.0, self.sprite_source_size.y - self.source_size.h / 2.0],
-                size: [self.sprite_source_size.w, self.sprite_source_size.h]
+                offset: [
+                    self.sprite_source_size.x - self.source_size.w / 2.0,
+                    self.sprite_source_size.y - self.source_size.h / 2.0,
+                ],
+                size: [self.sprite_source_size.w, self.sprite_source_size.h],
             }
         }
     }
 
     #[derive(Deserialize)]
     struct FrameTag {
-        name: String, from: usize, to: usize
+        name: String,
+        from: usize,
+        to: usize,
     }
     impl FrameTag {
         fn convert(&self, frames: &[Frame], fps: f32) -> (String, Vec<usize>) {
@@ -74,7 +85,7 @@ mod deserialize {
     struct Meta {
         image: String,
         size: Size,
-        frame_tags: Vec<FrameTag>
+        frame_tags: Vec<FrameTag>,
     }
 
     #[derive(Deserialize)]
@@ -85,8 +96,17 @@ mod deserialize {
     impl SpriteSheet {
         pub(super) fn convert(&self) -> super::SpriteInfo {
             super::SpriteInfo {
-                frames: self.frames.iter().map(|f| { f.convert(&self.meta.size)}).collect(),
-                animations: self.meta.frame_tags.iter().map(|t| { t.convert(&self.frames, 60.0) }).collect(),
+                frames: self
+                    .frames
+                    .iter()
+                    .map(|f| f.convert(&self.meta.size))
+                    .collect(),
+                animations: self
+                    .meta
+                    .frame_tags
+                    .iter()
+                    .map(|t| t.convert(&self.frames, 60.0))
+                    .collect(),
             }
         }
         pub fn get_image_filename(&self) -> &str {
@@ -99,7 +119,7 @@ mod deserialize {
 pub struct Frame {
     pub src: Rect,
     pub offset: [f32; 2],
-    pub size: [f32; 2]
+    pub size: [f32; 2],
 }
 
 #[derive(Debug)]
@@ -110,16 +130,18 @@ struct SpriteInfo {
 
 pub struct AnimatedSprite {
     pub src: Texture2D,
-    info: SpriteInfo
+    info: SpriteInfo,
 }
 
 impl AnimatedSprite {
-    pub async fn from_file(filepath: &Path) -> std::result::Result<AnimatedSprite, SpritesheetImportError> {
+    pub async fn from_file(
+        filepath: &Path,
+    ) -> std::result::Result<AnimatedSprite, SpritesheetImportError> {
         let path = filepath;
 
         let file = load_string(filepath.to_str().unwrap()).await?;
         let v: deserialize::SpriteSheet = serde_json::from_str(&file)?;
-        
+
         // let image_path = path.parent().unwrap_or(path).canonicalize()?.join(v.get_image_filename());
         let image_path = path.parent().unwrap_or(path).join(v.get_image_filename());
         let image = load_texture(image_path.to_str().unwrap()).await?;
@@ -127,23 +149,28 @@ impl AnimatedSprite {
         let info = v.convert();
         Ok(AnimatedSprite {
             src: image,
-            info: info
+            info: info,
         })
     }
-    
+
     pub fn get_anim_frame(&self, anim: &str, frame: usize) -> &Frame {
-        let frame_id = self.info.animations.get(anim)
-            .and_then(|anim_data| { anim_data.get(frame) })
+        let frame_id = self
+            .info
+            .animations
+            .get(anim)
+            .and_then(|anim_data| anim_data.get(frame))
             .cloned()
             .unwrap_or(0);
-        
+
         &self.info.frames[frame_id]
     }
 
     pub fn get_anim_length(&self, anim: &str) -> usize {
-        self.info.animations.get(anim)
-            .map(|anim_data| { anim_data.len() }).
-            unwrap_or(0)
+        self.info
+            .animations
+            .get(anim)
+            .map(|anim_data| anim_data.len())
+            .unwrap_or(0)
     }
 
     pub fn draw(&self, dest: cgmath::Point2<f32>, anim: &str, frame: usize, flip_h: bool) {
@@ -152,13 +179,16 @@ impl AnimatedSprite {
         // offset.x *= if flip_h { -1.0 } else { 1.0 };
         // offset -= cgmath::Vector2::new(self.info.size[0], self.info.size[1]) / 2.0;
         let actual_dest = dest + offset;
-        draw_texture_ex(self.src,
-            actual_dest.x, actual_dest.y, WHITE, 
+        draw_texture_ex(
+            self.src,
+            actual_dest.x,
+            actual_dest.y,
+            WHITE,
             DrawTextureParams {
                 source: Some(frame_info.src.into()),
                 flip_x: flip_h,
                 ..Default::default()
-            }
+            },
         );
 
         // let params = graphics::DrawParam::default()
@@ -183,7 +213,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum SpritesheetImportError {
     JSONError(serde_json::Error),
-    FileError(FileError)
+    FileError(FileError),
 }
 
 impl fmt::Display for SpritesheetImportError {

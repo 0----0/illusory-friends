@@ -1,8 +1,11 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Debug)]
 pub struct Rect {
-    pub x: f32, pub y: f32, pub w: f32, pub h: f32
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 impl Default for Rect {
@@ -11,21 +14,21 @@ impl Default for Rect {
             x: 0.0,
             y: 0.0,
             w: 16.0,
-            h: 16.0
+            h: 16.0,
         }
     }
 }
 
 impl Rect {
-    pub fn left(&self) -> f32 { 
+    pub fn left(&self) -> f32 {
         self.x
     }
 
-    pub fn right(&self) -> f32 { 
+    pub fn right(&self) -> f32 {
         self.x + self.w
     }
 
-    pub fn top(&self) -> f32 { 
+    pub fn top(&self) -> f32 {
         self.y
     }
 
@@ -62,7 +65,7 @@ impl Rect {
             x: self.x + x,
             y: self.y + y,
             w: self.w,
-            h: self.h
+            h: self.h,
         }
     }
 
@@ -78,7 +81,7 @@ impl Rect {
             x: self.x * scale,
             y: self.y * scale,
             w: self.w * scale,
-            h: self.h * scale
+            h: self.h * scale,
         }
     }
 
@@ -92,7 +95,7 @@ impl Rect {
             x: left,
             y: top,
             w: right - left,
-            h: bottom - top
+            h: bottom - top,
         }
     }
     pub fn normalize(&self) -> Rect {
@@ -107,15 +110,15 @@ impl Rect {
         }
         rect
     }
-
 }
-
-
 
 impl From<macroquad::math::Rect> for Rect {
     fn from(r: macroquad::math::Rect) -> Self {
         Self {
-            x: r.x, y: r.y, w: r.w, h: r.h
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
         }
     }
 }
@@ -123,11 +126,13 @@ impl From<macroquad::math::Rect> for Rect {
 impl From<Rect> for macroquad::math::Rect {
     fn from(r: Rect) -> Self {
         Self {
-            x: r.x, y: r.y, w: r.w, h: r.h
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
         }
     }
 }
-
 
 // impl From<Rect> for egui::Rect {
 //     fn from(r: Rect) -> Self {
