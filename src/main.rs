@@ -34,24 +34,17 @@ fn window_conf() -> Conf {
 #[derive(Clone, Copy)]
 struct Position(f32, f32);
 
-struct AnimatedSpriteComponent {
-    id: AnimatedSpriteId,
+struct SpriteComponent {
+    texture: Texture2D,
+    source: Option<Rect>,
+    offset: Vec2,
     flip_h: bool,
-    offset: [f32; 2],
-    animation: Ustr,
-    frame: usize,
 }
 
-impl Default for AnimatedSpriteComponent {
-    fn default() -> Self {
-        Self {
-            id: Default::default(),
-            flip_h: false,
-            offset: [0.0, 0.0],
-            animation: Ustr::from("Idle"),
-            frame: 0,
-        }
-    }
+struct AnimationComponent {
+    id: AnimatedSpriteId,
+    animation: Ustr,
+    frame: usize,
 }
 
 struct Overworld {
@@ -64,13 +57,25 @@ impl Overworld {
         let mut world = World::new();
         world.spawn((
             Position(0.0f32, 0.0f32),
-            *assets.char_concept.get()
+            SpriteComponent {
+                texture: *assets.char_concept.get(),
+                source: None,
+                offset: Default::default(),
+                flip_h: false,
+            }
         ));
         let player = world.spawn((
             Position(0.0f32, 0.0f32),
-            AnimatedSpriteComponent {
+            SpriteComponent {
+                texture: assets.get(&assets.char_sprite).src,
+                source: None,
+                offset: Default::default(),
+                flip_h: false,
+            },
+            AnimationComponent {
                 id: assets.char_sprite,
-                ..Default::default()
+                animation: Ustr::from("Idle"),
+                frame: 0,
             }
         ));
         // let lad = world.spawn(((123, 123), true));
@@ -83,50 +88,54 @@ impl Overworld {
     }
 
     fn draw(&self, assets: &Assets) {
-        for (_id, (&Position(x, y), &texture)) in self.world.query::<(&Position, &Texture2D)>().iter() {
-            draw_texture(*assets.char_concept.get(), x, y, WHITE);
-        }
-
-        for (_id, (&Position(x, y), sprite))
-        in self.world.query::<(&Position, &AnimatedSpriteComponent)>().iter() {
-            assets.get(&sprite.id).draw(
-                [x+sprite.offset[0],y+sprite.offset[1]].into(),
-                sprite.animation.as_str(),
-                sprite.frame,
-                sprite.flip_h
+        for (_id, (&Position(x, y), sprite)) in self.world.query::<(&Position, &SpriteComponent)>().iter() {
+            let true_x = x + sprite.offset.x;
+            let true_y = y + sprite.offset.y;
+            draw_texture_ex(sprite.texture.clone(), true_x, true_y, WHITE, 
+                DrawTextureParams {
+                    source: sprite.source,
+                    flip_x: sprite.flip_h,
+                    ..Default::default()
+                }
             );
         }
     }
 
     fn tick_animations(&mut self, assets: &Assets) {
-        let query = self.world.query_mut::<&mut AnimatedSpriteComponent>();
-        for (_id, sprite) in query {
-            sprite.frame += 1;
-            if sprite.frame >= assets.get(&assets.char_sprite).get_anim_length(sprite.animation.as_str()) {
-                sprite.frame = 0;
+        for (_id, animation) in self.world.query_mut::<&mut AnimationComponent>() {
+            animation.frame += 1;
+            if animation.frame >= assets.get(&assets.char_sprite).get_anim_length(animation.animation.as_str()) {
+                animation.frame = 0;
             }
+        }
+
+        for (_id, (sprite, animation)) in self.world.query_mut::<(&mut SpriteComponent, &AnimationComponent)>() {
+            let frame_info = assets.get(&animation.id).get_anim_frame(animation.animation.as_str(), animation.frame);
+            sprite.offset.x = frame_info.offset[0];
+            sprite.offset.y = frame_info.offset[1];
+            sprite.source = Some(frame_info.src.into());
         }
     }
 
     fn update(&mut self, assets: &Assets) {
-        let (Position(x, y), sprite) = self.world.query_one_mut::<(&mut Position, &mut AnimatedSpriteComponent)>(self.player).unwrap();
+        let (Position(x, y), sprite, animation) = self.world.query_one_mut::<(&mut Position, &mut SpriteComponent, &mut AnimationComponent)>(self.player).unwrap();
         if is_key_down(KeyCode::Up) {
-            sprite.animation = "Back".into();
+            animation.animation = "Back".into();
             sprite.flip_h = false;
             *y -= 1.0;
         }
         if is_key_down(KeyCode::Down) {
-            sprite.animation = "Idle".into();
+            animation.animation = "Idle".into();
             sprite.flip_h = false;
             *y += 1.0;
         }
         if is_key_down(KeyCode::Left) {
-            sprite.animation = "Right".into();
+            animation.animation = "Right".into();
             sprite.flip_h = true;
             *x -= 1.0;
         }
         if is_key_down(KeyCode::Right) {
-            sprite.animation = "Right".into();
+            animation.animation = "Right".into();
             sprite.flip_h = false;
             *x += 1.0;
         }
