@@ -370,7 +370,7 @@ impl Overworld {
     }
 
     fn draw_collisions(&self) {
-        for (id, (Position(pos), CollisionComponent { bounds })) in self
+        for (_id, (Position(pos), CollisionComponent { bounds })) in self
             .world
             .query::<(&Position, &CollisionComponent)>()
             .iter()
@@ -383,23 +383,6 @@ impl Overworld {
                 rect.h,
                 color_u8!(99., 155., 255., 64.),
             );
-        }
-    }
-}
-
-struct DialogueBranch {
-    events: Vec<DialogueEvent>,
-}
-
-enum DialogueEvent {
-    Text(String),
-    Choice(Vec<(String, DialogueBranch)>),
-}
-
-impl DialogueBranch {
-    fn new() -> Self {
-        Self {
-            events: Default::default(),
         }
     }
 }

@@ -24,17 +24,6 @@ mod deserialize {
         h: f32,
     }
 
-    impl Size {
-        fn relativize(&self, rect: &Rect) -> Rect {
-            Rect {
-                x: rect.x / self.w,
-                y: rect.y / self.h,
-                w: rect.w / self.w,
-                h: rect.h / self.h,
-            }
-        }
-    }
-
     #[derive(Deserialize)]
     #[serde(rename_all(deserialize = "camelCase"))]
     struct Frame {
@@ -46,9 +35,7 @@ mod deserialize {
         duration: f32,
     }
     impl Frame {
-        fn convert(&self, size: &Size) -> super::Frame {
-            // let r_frame = size.relativize(&self.frame);
-            // let r_source_size = size.relativize(&self.sprite_source_size);
+        fn convert(&self) -> super::Frame {
             super::Frame {
                 src: self.frame,
                 offset: [self.sprite_source_size.x, self.sprite_source_size.y],
@@ -81,7 +68,6 @@ mod deserialize {
     #[serde(rename_all(deserialize = "camelCase"))]
     struct Meta {
         image: String,
-        size: Size,
         frame_tags: Vec<FrameTag>,
     }
 
@@ -93,11 +79,7 @@ mod deserialize {
     impl SpriteSheet {
         pub(super) fn convert(&self) -> super::SpriteInfo {
             super::SpriteInfo {
-                frames: self
-                    .frames
-                    .iter()
-                    .map(|f| f.convert(&self.meta.size))
-                    .collect(),
+                frames: self.frames.iter().map(|f| f.convert()).collect(),
                 animations: self
                     .meta
                     .frame_tags
@@ -168,31 +150,6 @@ impl AnimatedSprite {
             .get(anim)
             .map(|anim_data| anim_data.len())
             .unwrap_or(0)
-    }
-
-    pub fn draw(&self, dest: cgmath::Point2<f32>, anim: &str, frame: usize, flip_h: bool) {
-        let frame_info = self.get_anim_frame(anim, frame);
-        let mut offset: cgmath::Vector2<f32> = frame_info.offset.into();
-        // offset.x *= if flip_h { -1.0 } else { 1.0 };
-        // offset -= cgmath::Vector2::new(self.info.size[0], self.info.size[1]) / 2.0;
-        let actual_dest = dest + offset;
-        draw_texture_ex(
-            self.src,
-            actual_dest.x,
-            actual_dest.y,
-            WHITE,
-            DrawTextureParams {
-                source: Some(frame_info.src.into()),
-                flip_x: flip_h,
-                ..Default::default()
-            },
-        );
-
-        // let params = graphics::DrawParam::default()
-        //     .src(frame_info.src)
-        //     .dest(dest + offset)
-        //     .scale([if flip_h { -1.0 } else { 1.0 }, 1.0]);
-        // graphics::draw(ctx, &self.src, params)
     }
 }
 
