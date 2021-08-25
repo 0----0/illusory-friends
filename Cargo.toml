@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 macroquad = "0.3"
-hecs = "0.6"
+hecs = { version = "0.6", features = ["row-serialize"] }
 anyhow = "*"
 async-trait = "*"
 futures = "*"
@@ -15,9 +15,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 mint = "*"
 cgmath = { version = "*", features=["mint"] }
-ustr = "*"
+ustr = { version = "0.8", features = ["serialization"] }
 egui = "*"
 egui-macroquad = "*"
+serde_with = "*"
+glam = { version = "0.14", features = ["serde"] }
 
 [profile.dev.package."*"]
 opt-level = 3

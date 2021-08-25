@@ -51,11 +51,8 @@ mod deserialize {
             // let r_source_size = size.relativize(&self.sprite_source_size);
             super::Frame {
                 src: self.frame,
-                offset: [
-                    self.sprite_source_size.x - self.source_size.w / 2.0,
-                    self.sprite_source_size.y - self.source_size.h / 2.0,
-                ],
-                size: [self.sprite_source_size.w, self.sprite_source_size.h],
+                offset: [self.sprite_source_size.x, self.sprite_source_size.y],
+                source_size: [self.source_size.w, self.source_size.h],
             }
         }
     }
@@ -119,7 +116,7 @@ mod deserialize {
 pub struct Frame {
     pub src: Rect,
     pub offset: [f32; 2],
-    pub size: [f32; 2],
+    pub source_size: [f32; 2],
 }
 
 #[derive(Debug)]
