@@ -8,7 +8,7 @@ use hecs::{
 };
 use macroquad::prelude::*;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::DerefMut};
 
 enum Tool {
     Select,
@@ -282,7 +282,11 @@ impl OverworldEditor {
         }
     }
 
-    pub async fn update(&mut self, assets: &Assets, overworld: &mut Overworld, camera: &Camera2D) {
+    pub async fn update(&mut self, assets: &Assets, game: &crate::Game) {
+        let mut game = game.0.borrow_mut();
+        let crate::_Game {
+            overworld, camera, ..
+        } = game.deref_mut();
         let mut should_load = false;
         egui_macroquad::ui(|egui_ctx| {
             egui::Window::new("hi!")

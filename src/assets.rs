@@ -158,6 +158,7 @@ pub struct Assets {
     pub animated_sprites: Vec<AssetWrapper<AnimatedSprite>>,
     textures: AssetMap<Texture2D>,
     pub texture_names: UstrMap<Ustr>,
+    pub font: bmfont::BMFont,
 }
 
 impl Assets {
@@ -175,6 +176,8 @@ impl Assets {
             (ustr("concept"), ustr("assets/charconcept.png")),
             (ustr("minewall"), ustr("assets/minewall.png")),
             (ustr("minefloor"), ustr("assets/minefloor.png")),
+            (ustr("font"), ustr("assets/newfont.png")),
+            (ustr("ninebox"), ustr("assets/9box.png")),
         ]);
 
         let textures = AssetMap::from_iter(texture_names.values().cloned()).await?;
@@ -185,6 +188,10 @@ impl Assets {
             animated_sprites, // spritesheets: Default::default(),
             textures,
             texture_names,
+            font: bmfont::BMFont::new(
+                std::io::Cursor::new(&include_bytes!("../assets/newfont.fnt")[..]),
+                bmfont::OrdinateOrientation::TopToBottom,
+            )?,
         })
     }
 

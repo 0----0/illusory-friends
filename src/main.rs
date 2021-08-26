@@ -1,7 +1,15 @@
 #![feature(result_cloned)]
+#![feature(option_get_or_insert_default)]
 
+use std::cell::{RefCell, RefMut};
+use std::rc::Rc;
+
+use bmfont::CharPosition;
+use colors::DARK;
+use futures::task::LocalSpawnExt;
 use hecs::{Entity, World};
 use macroquad::prelude::*;
+
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -387,16 +395,313 @@ impl Overworld {
     }
 }
 
+enum WaitingFor {
+    Confirm(futures::channel::oneshot::Sender<()>),
+    Choice(futures::channel::oneshot::Sender<usize>),
+    Auto(futures::channel::oneshot::Sender<()>),
+    Nothing,
+}
+
+impl Default for WaitingFor {
+    fn default() -> Self {
+        Self::Nothing
+    }
+}
+
+#[derive(Default)]
+struct Dialogue {
+    shown: bool,
+    current_text: String,
+    current_progress: usize,
+    waiting_for: WaitingFor,
+    choices: Option<Vec<String>>,
+    current_choice: usize,
+    portrait: Option<SpriteComponent>,
+}
+
+impl Dialogue {
+    fn set_text(&mut self, text: String) {
+        self.shown = true;
+        self.current_text = text;
+        self.current_progress = 0;
+    }
+
+    fn update(&mut self) {
+        self.current_progress += 1;
+        if let Some(choices) = &self.choices {
+            if is_key_pressed(KeyCode::Up) {
+                self.current_choice = match self.current_choice {
+                    0 => choices.len() - 1,
+                    _ => self.current_choice - 1,
+                };
+            }
+            if is_key_pressed(KeyCode::Down) {
+                self.current_choice = match self.current_choice {
+                    c if c >= choices.len() - 1 => 0,
+                    _ => self.current_choice + 1,
+                };
+            }
+        }
+
+        if self.current_progress >= self.current_text.len() {
+            match std::mem::replace(&mut self.waiting_for, WaitingFor::Nothing) {
+                WaitingFor::Auto(sender) => {
+                    sender.send(()).unwrap();
+                }
+                other => {
+                    self.waiting_for = other;
+                }
+            };
+        }
+
+        if is_key_pressed(KeyCode::Space) {
+            match std::mem::replace(&mut self.waiting_for, WaitingFor::Nothing) {
+                WaitingFor::Confirm(sender) => {
+                    sender.send(()).unwrap();
+                }
+                WaitingFor::Choice(sender) => {
+                    sender.send(self.current_choice).unwrap();
+                    self.choices = None;
+                }
+                other => self.waiting_for = other,
+            }
+        }
+    }
+
+    fn draw(&self, assets: &Assets) {
+        if self.shown {
+            let num_chars = std::cmp::min(self.current_text.len(), self.current_progress);
+            let ninebox = assets.get(&assets.get_texture("ninebox"));
+            draw_nine_box(*ninebox, 24., 224., 578., 128.);
+            draw_text_bmfont(
+                assets,
+                &self.current_text[0..num_chars],
+                64.,
+                264.,
+                colors::LIGHT,
+                Justify::Left,
+            );
+            if let Some(choices) = &self.choices {
+                let x = 416.;
+                let y = 112.;
+                draw_nine_box(*ninebox, x, y, 224., 128.);
+                for (i, c) in choices.iter().enumerate() {
+                    let draw_text = |text: &str| {
+                        draw_text_bmfont(
+                            assets,
+                            text,
+                            x + 224. - 40.,
+                            y + 40. + 30. * (i as f32),
+                            colors::LIGHT,
+                            Justify::Right,
+                        );
+                    };
+                    if i == self.current_choice {
+                        draw_text(&format!("> {}", c));
+                    } else {
+                        draw_text(c);
+                    };
+                }
+            }
+            // draw_text(
+            //     &self.current_text[0..num_chars],
+            //     100.,
+            //     300.,
+            //     50.,
+            //     colors::LIGHT,
+            // );
+        }
+    }
+}
+
+enum Justify {
+    Left,
+    Right,
+}
+
+fn draw_text_bmfont(assets: &Assets, text: &str, x: f32, y: f32, color: Color, justify: Justify) {
+    let bmfont = &assets.font;
+    let texture_id = assets.get_texture("font");
+    let texture = assets.get(&texture_id);
+    let char_positions = bmfont.parse(text).unwrap();
+    let draw_char_position = |c: CharPosition, offset_x: f32| {
+        draw_texture_ex(
+            *texture,
+            x + c.screen_rect.x as f32 + offset_x,
+            y + c.screen_rect.y as f32,
+            color,
+            DrawTextureParams {
+                source: Some(Rect {
+                    x: c.page_rect.x as f32,
+                    y: c.page_rect.y as f32,
+                    w: c.page_rect.width as f32,
+                    h: c.page_rect.height as f32,
+                }),
+                ..Default::default()
+            },
+        );
+    };
+
+    match justify {
+        Justify::Left => {
+            for c in char_positions {
+                draw_char_position(c, 0.0)
+            }
+        }
+        Justify::Right => {
+            let char_positions: Vec<_> = char_positions.collect();
+            let offset_x = char_positions
+                .last()
+                .map(|c| -c.screen_rect.max_x())
+                .unwrap_or(0) as f32;
+            for c in char_positions {
+                draw_char_position(c, offset_x);
+            }
+        }
+    }
+}
+
+fn draw_nine_box(texture: Texture2D, x: f32, y: f32, width: f32, height: f32) {
+    let sprite_width = texture.width() / 3.0;
+    let sprite_height = texture.height() / 3.0;
+    let cw = std::cmp::max(2, (width / sprite_width).floor() as i32);
+    let ch = std::cmp::max(2, (height / sprite_height).floor() as i32);
+    for cx in 0..cw {
+        for cy in 0..ch {
+            let tx = match cx {
+                0 => 0.,
+                cx if cx == cw - 1 => 2.,
+                _ => 1.,
+            };
+            let ty = match cy {
+                0 => 0.,
+                cy if cy == ch - 1 => 2.,
+                _ => 1.,
+            };
+            let texture_rect = Rect {
+                x: tx * sprite_width,
+                y: ty * sprite_height,
+                w: sprite_width,
+                h: sprite_height,
+            };
+            draw_texture_ex(
+                texture,
+                x + (cx as f32) * sprite_width,
+                y + (cy as f32) * sprite_height,
+                WHITE,
+                DrawTextureParams {
+                    source: Some(texture_rect),
+                    ..Default::default()
+                },
+            )
+        }
+    }
+}
+
+struct _Game {
+    overworld: Overworld,
+    camera: Camera2D,
+    dialogue: Dialogue,
+}
+
+pub struct Game(RefCell<_Game>);
+
+impl Game {
+    fn new(assets: &Assets) -> Self {
+        Self(RefCell::new(_Game {
+            overworld: Overworld::new(assets),
+            camera: Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0)),
+            dialogue: Default::default(),
+        }))
+    }
+
+    fn update(&self, assets: &Assets) {
+        let mut this = self.0.borrow_mut();
+        if !this.dialogue.shown {
+            this.overworld.update(assets);
+        } else {
+            this.dialogue.update();
+        }
+    }
+
+    fn draw(&self, assets: &Assets) {
+        let this = self.0.borrow();
+        set_camera(&this.camera);
+        this.overworld.draw(assets);
+        this.dialogue.draw(assets);
+    }
+
+    fn show_text<S>(&self, text: S, auto: bool) -> futures::channel::oneshot::Receiver<()>
+    where
+        S: Into<String>,
+    {
+        let mut this = self.0.borrow_mut();
+        this.dialogue.set_text(text.into());
+        let (s, r) = futures::channel::oneshot::channel();
+        this.dialogue.waiting_for = match auto {
+            false => WaitingFor::Confirm(s),
+            true => WaitingFor::Auto(s),
+        };
+        r
+    }
+
+    fn show_choice(
+        &self,
+        choices: impl IntoIterator<Item = impl Into<String>>,
+    ) -> futures::channel::oneshot::Receiver<usize> {
+        let mut this = self.0.borrow_mut();
+        this.dialogue.choices = Some(choices.into_iter().map(Into::into).collect());
+        this.dialogue.current_choice = 0;
+        let (s, r) = futures::channel::oneshot::channel();
+        this.dialogue.waiting_for = WaitingFor::Choice(s);
+        r
+    }
+
+    fn end_dialogue(&self) {
+        let mut this = self.0.borrow_mut();
+        this.dialogue.shown = false;
+    }
+
+    // fn dialogue_mut(&self) -> RefMut<Dialogue> {
+    //     RefMut::map(self.0.borrow_mut(), |this| &mut this.dialogue)
+    // }
+}
+
+async fn basic_dialogue_tree(game: Rc<Game>) {
+    // let game = game_static.get().unwrap();
+    game.show_text("HI!", false).await.unwrap();
+    game.show_text("HOW YA DOIN?", false).await.unwrap();
+    game.show_text("NEAT.\nDOES THIS WORK?", true)
+        .await
+        .unwrap();
+    let choice = game.show_choice(["YES", "NO"]).await.unwrap();
+    match choice {
+        0 => {
+            game.show_text("NICE!\nI'M GLAD.", false).await.unwrap();
+        }
+        _ => {
+            game.show_text("DANG.\nTHAT SUCKS.", false).await.unwrap();
+        }
+    }
+    game.end_dialogue();
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     let mut assets = Assets::new().await.unwrap();
-    let mut overworld = Overworld::new(&assets);
-    let camera = Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0));
+    // let mut overworld = Overworld::new(&assets);
+    // let camera = Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0));
+    let game = Rc::new(Game::new(&assets));
     let mut editor = OverworldEditor::default();
-    editor.load(&mut overworld).await.unwrap();
+    editor
+        .load(&mut game.0.borrow_mut().overworld)
+        .await
+        .unwrap();
+    let mut pool = futures::executor::LocalPool::new();
+    let mut dialogue = false;
 
     loop {
-        clear_background(colors::DARK);
+        clear_background(DARK);
 
         if is_key_pressed(KeyCode::R) {
             match assets.reload().await {
@@ -405,13 +710,22 @@ async fn main() {
             };
         }
 
-        set_camera(&camera);
+        // set_camera(&camera);
 
-        overworld.update(&assets);
-        overworld.draw(&assets);
+        // overworld.update(&assets);
+        // overworld.draw(&assets);
+        game.update(&assets);
+        game.draw(&assets);
+        if !dialogue {
+            pool.spawner()
+                .spawn_local(basic_dialogue_tree(game.clone()))
+                .unwrap();
+            dialogue = true;
+        }
 
-        editor.update(&assets, &mut overworld, &camera).await;
+        editor.update(&assets, game.as_ref()).await;
 
+        pool.run_until_stalled();
         next_frame().await
     }
 }
