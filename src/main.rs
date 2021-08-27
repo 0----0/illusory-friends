@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use bmfont::CharPosition;
 use colors::DARK;
+use futures::executor::LocalSpawner;
 use futures::task::LocalSpawnExt;
 use hecs::{Entity, World};
 use macroquad::prelude::*;
@@ -69,7 +70,7 @@ impl<'de> DeserializeAs<'de, Rect> for RectDef {
 struct Position(Vec2);
 
 #[serde_as]
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
 struct SpriteComponent {
     texture: TextureId,
     #[serde_as(as = "Option<RectDef>")]
@@ -324,32 +325,34 @@ impl Overworld {
         }
     }
 
-    fn update(&mut self, assets: &Assets) {
-        if let Ok((Position(pos), sprite, animation)) =
-            self.world
-                .query_one_mut::<(&mut Position, &mut SpriteComponent, &mut AnimationComponent)>(
-                    self.player,
-                )
-        {
-            if is_key_down(KeyCode::Up) {
-                animation.animation = "Back".into();
-                sprite.flip_h = false;
-                pos.y -= 1.0;
-            }
-            if is_key_down(KeyCode::Down) {
-                animation.animation = "Idle".into();
-                sprite.flip_h = false;
-                pos.y += 1.0;
-            }
-            if is_key_down(KeyCode::Left) {
-                animation.animation = "Right".into();
-                sprite.flip_h = true;
-                pos.x -= 1.0;
-            }
-            if is_key_down(KeyCode::Right) {
-                animation.animation = "Right".into();
-                sprite.flip_h = false;
-                pos.x += 1.0;
+    fn update(&mut self, assets: &Assets, allow_input: bool) {
+        if allow_input {
+            if let Ok((Position(pos), sprite, animation)) = self.world.query_one_mut::<(
+                &mut Position,
+                &mut SpriteComponent,
+                &mut AnimationComponent,
+            )>(self.player)
+            {
+                if is_key_down(KeyCode::Up) {
+                    animation.animation = "Back".into();
+                    sprite.flip_h = false;
+                    pos.y -= 1.0;
+                }
+                if is_key_down(KeyCode::Down) {
+                    animation.animation = "Idle".into();
+                    sprite.flip_h = false;
+                    pos.y += 1.0;
+                }
+                if is_key_down(KeyCode::Left) {
+                    animation.animation = "Right".into();
+                    sprite.flip_h = true;
+                    pos.x -= 1.0;
+                }
+                if is_key_down(KeyCode::Right) {
+                    animation.animation = "Right".into();
+                    sprite.flip_h = false;
+                    pos.x += 1.0;
+                }
             }
         }
         self.resolve_penetrations(self.player);
@@ -408,6 +411,12 @@ impl Default for WaitingFor {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PortraitOrientation {
+    Left,
+    Right,
+}
+
 #[derive(Default)]
 struct Dialogue {
     shown: bool,
@@ -416,7 +425,7 @@ struct Dialogue {
     waiting_for: WaitingFor,
     choices: Option<Vec<String>>,
     current_choice: usize,
-    portrait: Option<SpriteComponent>,
+    portrait: Option<(SpriteComponent, PortraitOrientation)>,
 }
 
 impl Dialogue {
@@ -424,6 +433,34 @@ impl Dialogue {
         self.shown = true;
         self.current_text = text;
         self.current_progress = 0;
+    }
+
+    fn show_text<S>(&mut self, text: S, auto: bool) -> futures::channel::oneshot::Receiver<()>
+    where
+        S: Into<String>,
+    {
+        self.set_text(text.into());
+        let (s, r) = futures::channel::oneshot::channel();
+        self.waiting_for = match auto {
+            false => WaitingFor::Confirm(s),
+            true => WaitingFor::Auto(s),
+        };
+        r
+    }
+
+    fn show_choice(
+        &mut self,
+        choices: impl IntoIterator<Item = impl Into<String>>,
+    ) -> futures::channel::oneshot::Receiver<usize> {
+        self.choices = Some(choices.into_iter().map(Into::into).collect());
+        self.current_choice = 0;
+        let (s, r) = futures::channel::oneshot::channel();
+        self.waiting_for = WaitingFor::Choice(s);
+        r
+    }
+
+    fn end(&mut self) {
+        self.shown = false;
     }
 
     fn update(&mut self) {
@@ -470,27 +507,54 @@ impl Dialogue {
 
     fn draw(&self, assets: &Assets) {
         if self.shown {
+            if let Some((portrait, orientation)) = &self.portrait {
+                let base = match orientation {
+                    PortraitOrientation::Left => (64., 128.),
+                    PortraitOrientation::Right => (448., 128.),
+                };
+                draw_texture_ex(
+                    *assets.get(&portrait.texture),
+                    base.0,
+                    base.1,
+                    WHITE,
+                    DrawTextureParams {
+                        source: portrait.source,
+                        ..Default::default()
+                    },
+                );
+            }
             let num_chars = std::cmp::min(self.current_text.len(), self.current_progress);
             let ninebox = assets.get(&assets.get_texture("ninebox"));
-            draw_nine_box(*ninebox, 24., 224., 578., 128.);
+            draw_nine_box(*ninebox, 32., 224., 576., 128.);
             draw_text_bmfont(
                 assets,
                 &self.current_text[0..num_chars],
-                64.,
+                72.,
                 264.,
                 colors::LIGHT,
                 Justify::Left,
             );
             if let Some(choices) = &self.choices {
-                let x = 416.;
-                let y = 112.;
-                draw_nine_box(*ninebox, x, y, 224., 128.);
+                let mut x = 416.;
+                let mut y = 112.;
+                let mut width = 224.;
+                let mut height = 128.;
+                x -= 32.0;
+                width += 32.0;
+                match choices.len() {
+                    3 => {
+                        y -= 32.;
+                        height += 32.;
+                    }
+                    _ => {}
+                }
+                draw_nine_box(*ninebox, x, y, width, height);
                 for (i, c) in choices.iter().enumerate() {
                     let draw_text = |text: &str| {
                         draw_text_bmfont(
                             assets,
                             text,
-                            x + 224. - 40.,
+                            x + width - 40.,
                             y + 40. + 30. * (i as f32),
                             colors::LIGHT,
                             Justify::Right,
@@ -604,22 +668,23 @@ struct _Game {
     dialogue: Dialogue,
 }
 
-pub struct Game(RefCell<_Game>);
+#[derive(Clone)]
+pub struct Game(Rc<RefCell<_Game>>);
 
 impl Game {
     fn new(assets: &Assets) -> Self {
-        Self(RefCell::new(_Game {
+        Self(Rc::new(RefCell::new(_Game {
             overworld: Overworld::new(assets),
             camera: Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0)),
             dialogue: Default::default(),
-        }))
+        })))
     }
 
-    fn update(&self, assets: &Assets) {
+    fn update(&self, assets: &Assets, spawner: &LocalSpawner) {
         let mut this = self.0.borrow_mut();
-        if !this.dialogue.shown {
-            this.overworld.update(assets);
-        } else {
+        let dialogue = this.dialogue.shown;
+        this.overworld.update(assets, !dialogue);
+        if dialogue {
             this.dialogue.update();
         }
     }
@@ -631,17 +696,25 @@ impl Game {
         this.dialogue.draw(assets);
     }
 
-    fn show_text<S>(&self, text: S, auto: bool) -> futures::channel::oneshot::Receiver<()>
+    fn show_text<S>(&self, text: S) -> futures::channel::oneshot::Receiver<()>
     where
         S: Into<String>,
     {
         let mut this = self.0.borrow_mut();
         this.dialogue.set_text(text.into());
         let (s, r) = futures::channel::oneshot::channel();
-        this.dialogue.waiting_for = match auto {
-            false => WaitingFor::Confirm(s),
-            true => WaitingFor::Auto(s),
-        };
+        this.dialogue.waiting_for = WaitingFor::Confirm(s);
+        r
+    }
+
+    fn show_text_auto<S>(&self, text: S) -> futures::channel::oneshot::Receiver<()>
+    where
+        S: Into<String>,
+    {
+        let mut this = self.0.borrow_mut();
+        this.dialogue.set_text(text.into());
+        let (s, r) = futures::channel::oneshot::channel();
+        this.dialogue.waiting_for = WaitingFor::Auto(s);
         r
     }
 
@@ -657,6 +730,25 @@ impl Game {
         r
     }
 
+    fn show_portrait(&self, portrait: Option<(Portrait, PortraitOrientation)>) {
+        let mut this = self.0.borrow_mut();
+        this.dialogue.portrait = portrait.map(|(p, o)| {
+            (
+                match p {
+                    Portrait::Maribelle => SpriteComponent {
+                        texture: "maribelleportrait".into(),
+                        ..Default::default()
+                    },
+                    Portrait::Ghost => SpriteComponent {
+                        texture: "ghostportrait".into(),
+                        ..Default::default()
+                    },
+                },
+                o,
+            )
+        });
+    }
+
     fn end_dialogue(&self) {
         let mut this = self.0.borrow_mut();
         this.dialogue.shown = false;
@@ -667,22 +759,209 @@ impl Game {
     // }
 }
 
-async fn basic_dialogue_tree(game: Rc<Game>) {
+#[derive(Clone, Copy)]
+enum Portrait {
+    Maribelle,
+    Ghost,
+}
+
+async fn basic_dialogue_tree(game: Game) {
     // let game = game_static.get().unwrap();
-    game.show_text("HI!", false).await.unwrap();
-    game.show_text("HOW YA DOIN?", false).await.unwrap();
-    game.show_text("NEAT.\nDOES THIS WORK?", true)
-        .await
-        .unwrap();
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    game.show_text("HI!").await.unwrap();
+    game.show_portrait(m);
+    game.show_text("WHO ARE YOU?").await.unwrap();
+    game.show_portrait(g);
+    game.show_text("BOO!").await.unwrap();
+    game.show_text("HOW YA DOIN?").await.unwrap();
+    game.show_text_auto("NEAT.\nDOES THIS WORK?").await.unwrap();
     let choice = game.show_choice(["YES", "NO"]).await.unwrap();
     match choice {
         0 => {
-            game.show_text("NICE!\nI'M GLAD.", false).await.unwrap();
+            game.show_portrait(m);
+            game.show_text("YEAH, CHOICES WORK.").await.unwrap();
+            game.show_portrait(g);
+            game.show_text("NICE!\nI'M GLAD.").await.unwrap();
         }
         _ => {
-            game.show_text("DANG.\nTHAT SUCKS.", false).await.unwrap();
+            game.show_portrait(m);
+            game.show_text("NOPE. DOESN'T WORK.").await.unwrap();
+            game.show_portrait(g);
+            game.show_text("DANG.\nTHAT SUCKS.").await.unwrap();
         }
     }
+    game.show_text("ANYWAY, BYE.").await.unwrap();
+    game.end_dialogue();
+}
+
+async fn demo_dialogue_tree(game: Game) {
+    // let game = game_static.get().unwrap();
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    game.show_portrait(g);
+    game.show_text_auto("WOW!  SO THIS SPELL IS CALLED FIREBOLT!\nHOW STRONG IS IT?")
+        .await
+        .unwrap();
+    let (strength, cost) = loop {
+        let strength = game
+            .show_choice(["VERY STRONG", "IT'S OK", "IT'S WEAK"])
+            .await
+            .unwrap();
+        match strength {
+            0 => {
+                game.show_portrait(m);
+                game.show_text("IT'S SUPER STRONG.\nIT COULD PROBABLY KILL A DRAGON.")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                game.show_text("WOW! THAT'S SO COOL!\nYOU MUST BE A POWERFUL WITCH!")
+                    .await
+                    .unwrap();
+                game.show_text("SINCE IT'S SO STRONG,\nHOW MUCH MANA DOES IT COST?")
+                    .await
+                    .unwrap();
+            }
+            1 => {
+                game.show_portrait(m);
+                game.show_text("IT'S NOTHING SPECIAL.\nAN EVERYDAY SPELL FOR ME.")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                game.show_text("THAT'S NEAT!\nI BET YOU STUDIED HARD TO LEARN IT.")
+                    .await
+                    .unwrap();
+                game.show_text("SO SINCE IT'S AVERAGE STRENGTH,\nHOW MUCH MANA DOES IT COST?")
+                    .await
+                    .unwrap();
+            }
+            _ => {
+                game.show_portrait(m);
+                game.show_text("IT'S SUPER WEAK.\nI'M STILL LEARNING BETTER SPELLS...")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                game.show_text("AW, THAT'S OKAY.\nI BET YOU'LL GET STRONGER IN NO TIME!")
+                    .await
+                    .unwrap();
+                game.show_text("SO SINCE IT'S PRETTY WEAK,\nHOW MUCH MANA DOES IT COST?")
+                    .await
+                    .unwrap();
+            }
+        }
+        let cost = game
+            .show_choice(["LOADS OF MANA", "NOT TOO MUCH", "BARELY ANY"])
+            .await
+            .unwrap();
+        match cost {
+            0 => {
+                game.show_portrait(m);
+                game.show_text("TONS.\nONLY THE MOST POWERFUL CAN WIELD IT.")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                match strength {
+                    0 => {
+                        game.show_text("WHOA. THAT'S ONLY FITTING\nFOR SUCH A POWERFUL SPELL!")
+                            .await
+                            .unwrap();
+                    }
+                    1 => {
+                        game.show_text("WOW. BEING A WITCH IS HARD...\nYOU'RE SO COOL!")
+                            .await
+                            .unwrap();
+                    }
+                    _ => {
+                        game.show_text("WOW, THAT MUCH?\nMAYBE THIS SPELL ISN'T SO GOOD...")
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+            1 => {
+                game.show_portrait(m);
+                game.show_text("NOT TOO MUCH.\nI CAN HANDLE IT, EASY.")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                match strength {
+                    0 => {
+                        game.show_text("SUCH AN EFFICIENT SPELL!\nYOU'RE SO SMART!")
+                            .await
+                            .unwrap();
+                    }
+                    1 => {
+                        game.show_text("THAT'S A GREAT SPELL TO START WITH.\nGOOD THINKING!")
+                            .await
+                            .unwrap();
+                    }
+                    _ => {
+                        game.show_text("IT SOUNDS HARD TO USE,\nBUT I BET YOU'LL DO GREAT!")
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+            _ => {
+                game.show_portrait(m);
+                game.show_text("IT'S SUPER CHEAP.\nI CAN CAST IT ALL DAY.")
+                    .await
+                    .unwrap();
+                game.show_portrait(g);
+                match strength {
+                    0 => {
+                        game.show_text("WOW... IS THAT THE STRONGEST SPELL?\nTHAT'S AMAZING! THIS'LL BE A BREEZE!").await.unwrap();
+                    }
+                    1 => {
+                        game.show_text("THAT'S GREAT! WE CAN GO\nON A WHILE WITHOUT RESTING!")
+                            .await
+                            .unwrap();
+                    }
+                    _ => {
+                        game.show_text("THAT MAKES SENSE.\nIT'S GREAT TO HAVE OPTIONS!")
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+        }
+        let strength_str = match strength {
+            0 => "A VERY STRONG",
+            1 => "A GOOD",
+            _ => "A WEAK",
+        };
+        let cost_str = match cost {
+            0 => "A LOT OF",
+            1 => "SOME",
+            _ => "BARELY ANY",
+        };
+        game.show_text(format!(
+            "SO FIREBOLT IS {} SPELL THAT\nCOSTS {} MANA. ARE YOU SURE?",
+            strength_str, cost_str
+        ))
+        .await
+        .unwrap();
+        let confirm = game.show_choice(["YES", "ACTUALLY..."]).await.unwrap();
+        match confirm {
+            0 => {
+                game.show_text("GREAT! REMEMBER,\nYOU CAN ALWAYS CHANGE YOUR MIND!")
+                    .await
+                    .unwrap();
+                break (strength, cost);
+            }
+            _ => {
+                game.show_text("OH, WANNA GO OVER IT AGAIN?\nTHAT'S OKAY!")
+                    .await
+                    .unwrap();
+                game.show_text("SO THIS SPELL IS CALLED FIREBOLT!\nHOW STRONG IS IT?")
+                    .await
+                    .unwrap();
+                continue;
+            }
+        }
+    };
+
+    game.show_text("ANYWAY, BYE FOR NOW!").await.unwrap();
     game.end_dialogue();
 }
 
@@ -691,13 +970,14 @@ async fn main() {
     let mut assets = Assets::new().await.unwrap();
     // let mut overworld = Overworld::new(&assets);
     // let camera = Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0));
-    let game = Rc::new(Game::new(&assets));
+    let game = Game::new(&assets);
     let mut editor = OverworldEditor::default();
     editor
         .load(&mut game.0.borrow_mut().overworld)
         .await
         .unwrap();
     let mut pool = futures::executor::LocalPool::new();
+    let spawner = pool.spawner();
     let mut dialogue = false;
 
     loop {
@@ -714,16 +994,16 @@ async fn main() {
 
         // overworld.update(&assets);
         // overworld.draw(&assets);
-        game.update(&assets);
+        game.update(&assets, &spawner);
         game.draw(&assets);
         if !dialogue {
-            pool.spawner()
-                .spawn_local(basic_dialogue_tree(game.clone()))
+            spawner
+                .spawn_local(demo_dialogue_tree(game.clone()))
                 .unwrap();
             dialogue = true;
         }
 
-        editor.update(&assets, game.as_ref()).await;
+        editor.update(&assets, &game).await;
 
         pool.run_until_stalled();
         next_frame().await

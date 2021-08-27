@@ -10,6 +10,8 @@ use ustr::{ustr, Ustr, UstrMap};
 mod animated_sprite;
 
 pub use animated_sprite::AnimatedSprite;
+
+use crate::SpriteComponent;
 // use ustr::UstrMap;
 
 #[async_trait]
@@ -86,6 +88,12 @@ pub enum TextureId {
     AnimatedSpriteId(AnimatedSpriteId),
 }
 
+impl Default for TextureId {
+    fn default() -> Self {
+        Self::TextureId(ustr("missing"))
+    }
+}
+
 impl From<AnimatedSpriteId> for TextureId {
     fn from(v: AnimatedSpriteId) -> Self {
         Self::AnimatedSpriteId(v)
@@ -98,9 +106,9 @@ impl From<Ustr> for TextureId {
     }
 }
 
-impl Default for TextureId {
-    fn default() -> Self {
-        Self::TextureId("concept".into())
+impl From<&str> for TextureId {
+    fn from(v: &str) -> Self {
+        Self::TextureId(ustr(v))
     }
 }
 
@@ -109,7 +117,14 @@ impl AssetId for TextureId {
 
     fn get<'a>(&self, assets: &'a Assets) -> &'a Self::Asset {
         match self {
-            TextureId::TextureId(path) => &assets.textures.0[path],
+            TextureId::TextureId(name) => {
+                &assets.textures.0[&assets
+                    .asset_data
+                    .textures
+                    .get(name)
+                    .unwrap_or(&ustr("assets/missing.png"))]
+            }
+
             TextureId::AnimatedSpriteId(id) => &assets.get(id).src,
         }
     }
@@ -151,13 +166,19 @@ impl<T: Asset> AssetMap<T> {
     }
 }
 
+#[derive(Deserialize)]
+struct AssetData {
+    textures: UstrMap<Ustr>,
+    sprites: UstrMap<SpriteComponent>,
+}
+
 pub struct Assets {
     pub char_concept: TextureId,
     // pub char_sprite: AssetWrapper<AnimatedSprite>,
     pub char_sprite: AnimatedSpriteId,
     pub animated_sprites: Vec<AssetWrapper<AnimatedSprite>>,
     textures: AssetMap<Texture2D>,
-    pub texture_names: UstrMap<Ustr>,
+    asset_data: AssetData,
     pub font: bmfont::BMFont,
 }
 
@@ -172,24 +193,19 @@ impl Assets {
             .await
             .unwrap();
 
-        let texture_names = UstrMap::from_iter([
-            (ustr("concept"), ustr("assets/charconcept.png")),
-            (ustr("minewall"), ustr("assets/minewall.png")),
-            (ustr("minefloor"), ustr("assets/minefloor.png")),
-            (ustr("font"), ustr("assets/newfont.png")),
-            (ustr("ninebox"), ustr("assets/9box.png")),
-        ]);
+        let asset_data: AssetData =
+            serde_json::from_str(&load_string("assets/asset_data.json").await?)?;
 
-        let textures = AssetMap::from_iter(texture_names.values().cloned()).await?;
+        let textures = AssetMap::from_iter(asset_data.textures.values().cloned()).await?;
 
         Ok(Assets {
-            char_concept: TextureId::TextureId(texture_names[&ustr("concept")]),
+            char_concept: TextureId::TextureId(ustr("concept")),
             char_sprite: AnimatedSpriteId(0),
             animated_sprites, // spritesheets: Default::default(),
             textures,
-            texture_names,
+            asset_data,
             font: bmfont::BMFont::new(
-                std::io::Cursor::new(&include_bytes!("../assets/newfont.fnt")[..]),
+                std::io::Cursor::new(&include_bytes!("../assets/font.fnt")[..]),
                 bmfont::OrdinateOrientation::TopToBottom,
             )?,
         })
@@ -199,7 +215,7 @@ impl Assets {
     where
         S: Into<Ustr>,
     {
-        TextureId::TextureId(self.texture_names[&id.into()])
+        TextureId::TextureId(id.into())
     }
 
     pub fn get<T: AssetId>(&self, id: &T) -> &T::Asset {
