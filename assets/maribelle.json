@@ -1,0 +1,67 @@
+{ "frames": [
+   {
+    "filename": "maribelle 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 27, "h": 45 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 19, "y": 10, "w": 27, "h": 45 },
+    "sourceSize": { "w": 64, "h": 64 },
+    "duration": 500
+   },
+   {
+    "filename": "maribelle 1.aseprite",
+    "frame": { "x": 27, "y": 0, "w": 27, "h": 46 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 19, "y": 9, "w": 27, "h": 46 },
+    "sourceSize": { "w": 64, "h": 64 },
+    "duration": 400
+   },
+   {
+    "filename": "maribelle 2.aseprite",
+    "frame": { "x": 54, "y": 0, "w": 27, "h": 45 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 19, "y": 10, "w": 27, "h": 45 },
+    "sourceSize": { "w": 64, "h": 64 },
+    "duration": 500
+   },
+   {
+    "filename": "maribelle 3.aseprite",
+    "frame": { "x": 81, "y": 0, "w": 20, "h": 45 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 22, "y": 10, "w": 20, "h": 45 },
+    "sourceSize": { "w": 64, "h": 64 },
+    "duration": 500
+   },
+   {
+    "filename": "maribelle 4.aseprite",
+    "frame": { "x": 101, "y": 0, "w": 27, "h": 44 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 19, "y": 10, "w": 27, "h": 44 },
+    "sourceSize": { "w": 64, "h": 64 },
+    "duration": 500
+   }
+ ],
+ "meta": {
+  "app": "http://www.aseprite.org/",
+  "version": "1.2.27-x64",
+  "image": "maribelle.png",
+  "format": "RGBA8888",
+  "size": { "w": 128, "h": 46 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "Idle", "from": 0, "to": 1, "direction": "forward" },
+   { "name": "Right", "from": 3, "to": 3, "direction": "forward" },
+   { "name": "Back", "from": 4, "to": 4, "direction": "forward" }
+  ],
+  "layers": [
+   { "name": "Layer 2", "opacity": 255, "blendMode": "normal" },
+   { "name": "Layer 1", "opacity": 255, "blendMode": "normal" }
+  ],
+  "slices": [
+  ]
+ }
+}

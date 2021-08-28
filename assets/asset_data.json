@@ -1,0 +1,13 @@
+{
+    "textures": {
+        "concept": "assets/charconcept.png",
+        "minewall": "assets/minewall.png",
+        "minefloor": "assets/minefloor.png",
+        "font": "assets/font.png",
+        "ninebox": "assets/9box.png",
+        "missing": "assets/missing.png",
+        "maribelleportrait": "assets/maribelleportrait.png",
+        "ghostportrait": "assets/ghostportrait.png"
+    },
+    "sprites": {}
+}
