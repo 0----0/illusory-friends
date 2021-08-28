@@ -1,11 +1,19 @@
+use arrayvec::ArrayString;
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use futures::{future::try_join_all, try_join};
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::convert::TryInto;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use ustr::{ustr, Ustr, UstrMap};
+type Ustr = ArrayString<32>;
+type UstrMap<V> = HashMap<Ustr, V>;
+
+fn ustr(s: &str) -> Ustr {
+    Ustr::from(s).unwrap()
+}
 
 mod animated_sprite;
 
@@ -16,9 +24,9 @@ use crate::SpriteComponent;
 
 #[async_trait]
 pub trait Asset {
-    async fn load(path: &Path) -> anyhow::Result<Self>
+    async fn load<'a>(path: &'a Path) -> anyhow::Result<Self>
     where
-        Self: Sized;
+        Self: Sized + 'static;
     fn delete(&self) {}
 }
 
@@ -29,7 +37,7 @@ pub struct AssetWrapper<T: Asset> {
 
 impl<T> AssetWrapper<T>
 where
-    T: Asset,
+    T: Asset + 'static,
 {
     async fn new<P>(path: P) -> anyhow::Result<Self>
     where
@@ -117,13 +125,7 @@ impl AssetId for TextureId {
 
     fn get<'a>(&self, assets: &'a Assets) -> &'a Self::Asset {
         match self {
-            TextureId::TextureId(name) => {
-                &assets.textures.0[&assets
-                    .asset_data
-                    .textures
-                    .get(name)
-                    .unwrap_or(&ustr("assets/missing.png"))]
-            }
+            TextureId::TextureId(name) => &assets.textures.0[&assets.asset_data.textures[name]],
 
             TextureId::AnimatedSpriteId(id) => &assets.get(id).src,
         }
@@ -143,12 +145,14 @@ impl<T: Asset> Default for AssetMap<T> {
     }
 }
 
-impl<T: Asset> AssetMap<T> {
+impl<T: Asset + 'static> AssetMap<T> {
     async fn from_iter<I: IntoIterator<Item = Ustr>>(iter: I) -> anyhow::Result<Self> {
+        let paths: Vec<_> = iter.into_iter().collect();
         Ok(Self(UstrMap::from_iter(
             try_join_all(
-                iter.into_iter()
-                    .map(|path| T::load(Path::new(path.as_str())).map_ok(move |a| (path, a))),
+                paths
+                    .iter()
+                    .map(|path| T::load(Path::new(path.as_str())).map_ok(move |a| (*path, a))),
             )
             .await?,
         )))
@@ -213,9 +217,13 @@ impl Assets {
 
     pub fn get_texture<S>(&self, id: S) -> TextureId
     where
-        S: Into<Ustr>,
+        S: TryInto<Ustr>,
     {
-        TextureId::TextureId(id.into())
+        TextureId::TextureId(
+            id.try_into()
+                .map_err(|e| String::from("Texture ID too big"))
+                .unwrap(),
+        )
     }
 
     pub fn get<T: AssetId>(&self, id: &T) -> &T::Asset {

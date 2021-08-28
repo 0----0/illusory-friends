@@ -11,11 +11,15 @@ use futures::task::LocalSpawnExt;
 use hecs::{Entity, World};
 use macroquad::prelude::*;
 
+use arrayvec::ArrayString;
+type Ustr = ArrayString<32>;
+fn ustr(s: &str) -> Ustr {
+    Ustr::from(s).unwrap()
+}
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
 use serde_with::{DeserializeAs, SerializeAs};
-use ustr::Ustr;
 
 mod assets;
 mod colors;
@@ -205,7 +209,7 @@ impl Overworld {
             },
             AnimationComponent {
                 id: assets.char_sprite,
-                animation: Ustr::from("Idle"),
+                animation: Ustr::from("Idle").unwrap(),
                 frame: 0,
                 offset: Default::default(),
             },
@@ -334,22 +338,22 @@ impl Overworld {
             )>(self.player)
             {
                 if is_key_down(KeyCode::Up) {
-                    animation.animation = "Back".into();
+                    animation.animation = ustr("Back");
                     sprite.flip_h = false;
                     pos.y -= 1.0;
                 }
                 if is_key_down(KeyCode::Down) {
-                    animation.animation = "Idle".into();
+                    animation.animation = ustr("Idle");
                     sprite.flip_h = false;
                     pos.y += 1.0;
                 }
                 if is_key_down(KeyCode::Left) {
-                    animation.animation = "Right".into();
+                    animation.animation = ustr("Right");
                     sprite.flip_h = true;
                     pos.x -= 1.0;
                 }
                 if is_key_down(KeyCode::Right) {
-                    animation.animation = "Right".into();
+                    animation.animation = ustr("Right");
                     sprite.flip_h = false;
                     pos.x += 1.0;
                 }

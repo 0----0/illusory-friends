@@ -15,12 +15,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 mint = "*"
 cgmath = { version = "*", features=["mint"] }
-ustr = { version = "0.8", features = ["serialization"] }
 egui = "*"
 egui-macroquad = "*"
 serde_with = "*"
 glam = { version = "0.14", features = ["serde"] }
 bmfont = "0.3.3"
+arrayvec = { version = "*", features = ["serde"] }
 
 [profile.dev.package."*"]
 opt-level = 3
