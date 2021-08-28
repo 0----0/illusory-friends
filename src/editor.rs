@@ -1,6 +1,6 @@
 use crate::{
-    assets::Assets, colors, AnimationComponent, CollisionComponent, Overworld, Position,
-    SpriteComponent,
+    assets::Assets, colors, AnimationComponent, CollisionComponent, FollowComponent, Interactable,
+    Overworld, Position, SpriteComponent,
 };
 use hecs::{
     serialize::row::{try_serialize, DeserializeContext, SerializeContext},
@@ -42,7 +42,19 @@ fn vec2_manual_input_ui(ui: &mut egui::Ui, vec: &mut Vec2) -> egui::Response {
 
 fn collisions_ui(ui: &mut egui::Ui, entity: EntityRef) {
     if let Some(mut col) = entity.get_mut::<CollisionComponent>() {
+        ui.label("Collision rect:");
         rect_manual_input_ui(ui, &mut col.bounds);
+    }
+}
+
+fn interactable_ui(ui: &mut egui::Ui, entity: EntityRef, builder: &mut EntityBuilder) {
+    if let Some(mut int) = entity.get_mut::<Interactable>() {
+        ui.label("Interaction rect:");
+        rect_manual_input_ui(ui, &mut int.bounds);
+        ui.label("Priority:");
+        ui.add(egui::DragValue::new(&mut int.priority));
+    } else if ui.button("Add interaction").clicked() {
+        builder.add(Interactable::default());
     }
 }
 
@@ -119,6 +131,8 @@ macro_rules! apply_component_ids {
             Sprite : SpriteComponent,
             Collision : CollisionComponent,
             Animation : AnimationComponent,
+            Interaction : Interactable,
+            Follow: FollowComponent,
         }
     };
 }
@@ -181,6 +195,8 @@ enum ComponentId {
     Sprite,
     Collision,
     Animation,
+    Interaction,
+    Follow,
 }
 
 struct OverworldSerializeContext;
@@ -297,16 +313,21 @@ impl OverworldEditor {
                         if ui.button("Delete").clicked() {
                             overworld.world.despawn(entity).unwrap();
                         }
+                        let mut builder = EntityBuilder::new();
                         if let Ok(entity_ref) = overworld.world.entity(entity) {
                             position_ui(ui, entity_ref);
                             sprite_ui(ui, entity_ref);
                             animation_ui(ui, entity_ref);
                             collisions_ui(ui, entity_ref);
+                            interactable_ui(ui, entity_ref, &mut builder);
                             if ui.button("Duplicate").clicked() {
                                 let mut builder = EntityBuilder::new();
                                 duplicate_entity(entity_ref, &mut builder);
                                 overworld.world.spawn(builder.build());
                             }
+                        }
+                        if builder.component_types().next().is_some() {
+                            overworld.world.insert(entity, builder.build()).unwrap();
                         }
                     }
                     if ui.button("Spawn new thing").clicked() {
@@ -356,6 +377,7 @@ impl OverworldEditor {
 
             if self.show_collisions {
                 overworld.draw_collisions();
+                overworld.draw_interactions();
             }
 
             self.highlight_selected(assets, overworld);

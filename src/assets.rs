@@ -185,9 +185,12 @@ impl Assets {
         //     AssetWrapper::new("assets/maribelle.json")
         // )?;
 
-        let animated_sprites = try_join_all([AssetWrapper::new("assets/maribelle.json")])
-            .await
-            .unwrap();
+        let animated_sprites = try_join_all([
+            AssetWrapper::new("assets/maribelle.json"),
+            AssetWrapper::new("assets/ghost.json"),
+        ])
+        .await
+        .unwrap();
 
         let asset_data: AssetData =
             serde_json::from_str(&load_string("assets/asset_data.json").await?)?;

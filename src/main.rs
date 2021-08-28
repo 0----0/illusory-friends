@@ -137,6 +137,33 @@ struct CollisionComponent {
     bounds: Rect,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum InteractableType {
+    Lamp,
+    Ghost,
+}
+
+impl Default for InteractableType {
+    fn default() -> Self {
+        Self::Lamp
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+struct Interactable {
+    #[serde(with = "RectDef")]
+    bounds: Rect,
+    interaction: InteractableType,
+    priority: i32,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct FollowComponent {
+    target: Entity,
+    max_distance: f32,
+    speed: f32,
+}
+
 #[derive(Deserialize)]
 pub struct Overworld {
     #[serde(deserialize_with = "deserialize_world")]
@@ -222,6 +249,33 @@ impl Overworld {
             },
         ));
         Self { world, player }
+    }
+
+    fn follow(&mut self) {
+        let mut adjustments = Vec::new();
+        for (id, (Position(pos), follow)) in
+            self.world.query::<(&Position, &FollowComponent)>().iter()
+        {
+            if let Ok(mut query) = self.world.query_one::<&Position>(follow.target) {
+                if let Some(Position(target_pos)) = query.get() {
+                    let x_diff = target_pos.x - pos.x;
+                    let y_diff = target_pos.y - pos.y;
+                    if x_diff.abs() + y_diff.abs() > follow.max_distance {
+                        let adjustment = if x_diff.abs() > y_diff.abs() {
+                            vec2(x_diff.abs().min(follow.speed).copysign(x_diff), 0.)
+                        } else {
+                            vec2(0., y_diff.abs().min(follow.speed).copysign(y_diff))
+                        };
+
+                        adjustments.push((id, adjustment));
+                    }
+                }
+            }
+        }
+        for (id, adjustment) in adjustments {
+            let query = self.world.query_one_mut::<&mut Position>(id).unwrap();
+            query.0 += adjustment;
+        }
     }
 
     fn resolve_penetrations(&mut self, entity: Entity) {
@@ -328,7 +382,7 @@ impl Overworld {
         }
     }
 
-    fn update(&mut self, assets: &Assets, allow_input: bool) {
+    fn update(&mut self, assets: &Assets, events: &mut Vec<Event>, allow_input: bool) {
         if allow_input {
             if let Ok((Position(pos), sprite, animation)) = self.world.query_one_mut::<(
                 &mut Position,
@@ -357,8 +411,14 @@ impl Overworld {
                     pos.x += 1.0;
                 }
             }
+            self.follow();
         }
         self.resolve_penetrations(self.player);
+        if allow_input {
+            if is_key_pressed(KeyCode::Space) {
+                self.interact(self.player, events);
+            }
+        }
         self.tick_animations(assets);
     }
 
@@ -383,6 +443,40 @@ impl Overworld {
         None
     }
 
+    fn interact(&mut self, entity: Entity, events: &mut Vec<Event>) {
+        let pos = match self.world.query_one_mut::<&Position>(entity) {
+            Ok(Position(pos)) => *pos,
+            Err(_) => return,
+        };
+
+        let mut interactables: Vec<_> = self
+            .world
+            .query_mut::<(&Position, &Interactable)>()
+            .into_iter()
+            .collect();
+        interactables.sort_by_key(|(_id, (Position(..), Interactable { priority, .. }))| priority);
+        for (
+            id,
+            (
+                Position(interactable_pos),
+                Interactable {
+                    bounds,
+                    interaction,
+                    ..
+                },
+            ),
+        ) in interactables.iter().rev()
+        {
+            if bounds.offset(*interactable_pos).contains(pos) {
+                events.push(Event::Interaction {
+                    entity: *id,
+                    interaction: *interaction,
+                });
+                return;
+            }
+        }
+    }
+
     fn draw_collisions(&self) {
         for (_id, (Position(pos), CollisionComponent { bounds })) in self
             .world
@@ -396,6 +490,21 @@ impl Overworld {
                 rect.w,
                 rect.h,
                 color_u8!(99., 155., 255., 64.),
+            );
+        }
+    }
+
+    fn draw_interactions(&self) {
+        for (_id, (Position(pos), Interactable { bounds, .. })) in
+            self.world.query::<(&Position, &Interactable)>().iter()
+        {
+            let rect = bounds.offset(*pos);
+            draw_rectangle(
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                color_u8!(251., 242., 54., 64.),
             );
         }
     }
@@ -637,10 +746,72 @@ fn draw_nine_box(texture: Texture2D, x: f32, y: f32, width: f32, height: f32) {
     }
 }
 
+enum Event {
+    Interaction {
+        entity: Entity,
+        interaction: InteractableType,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum PlayerClass {
+    Witch,
+    Princess,
+    Knight,
+}
+
+impl PlayerClass {
+    fn str(&self) -> &str {
+        match self {
+            PlayerClass::Witch => "WITCH",
+            PlayerClass::Princess => "PRINCESS",
+            PlayerClass::Knight => "KNIGHT",
+        }
+    }
+    fn ghost_title(&self) -> &str {
+        match self {
+            PlayerClass::Witch => "GREAT WITCH",
+            PlayerClass::Princess => "YOUR HIGHNESS",
+            PlayerClass::Knight => "MY LADY",
+        }
+    }
+}
+#[derive(Clone, Copy)]
+enum GhostClass {
+    Ghost,
+    Goblin,
+    Dwarf,
+}
+
+impl GhostClass {
+    fn str(&self) -> &str {
+        match self {
+            GhostClass::Ghost => "GHOST",
+            GhostClass::Goblin => "GOBLIN",
+            GhostClass::Dwarf => "DWARF",
+        }
+    }
+
+    fn affectation(&self) -> &str {
+        match self {
+            GhostClass::Ghost => "WOO OO",
+            GhostClass::Goblin => "NYEHEHEH",
+            GhostClass::Dwarf => "AYE",
+        }
+    }
+}
+
+#[derive(Default)]
+struct Info {
+    player_class: Option<PlayerClass>,
+    ghost_class: Option<GhostClass>,
+}
+
 struct _Game {
     overworld: Overworld,
     camera: Camera2D,
     dialogue: Dialogue,
+    info: Info,
 }
 
 #[derive(Clone)]
@@ -652,15 +823,40 @@ impl Game {
             overworld: Overworld::new(assets),
             camera: Camera2D::from_display_rect(Rect::new(0.0, 0.0, 640.0, 360.0)),
             dialogue: Default::default(),
+            info: Default::default(),
         })))
     }
 
     fn update(&self, assets: &Assets, spawner: &LocalSpawner) {
         let mut this = self.0.borrow_mut();
+        let mut events = Vec::new();
         let dialogue = this.dialogue.shown;
-        this.overworld.update(assets, !dialogue);
+        this.overworld.update(assets, &mut events, !dialogue);
         if dialogue {
             this.dialogue.update();
+        }
+        for event in events {
+            match event {
+                Event::Interaction {
+                    entity,
+                    interaction,
+                } => match interaction {
+                    InteractableType::Lamp => spawner
+                        .spawn_local(wrap_dialogue(lamp_dialogue_tree(self.clone())))
+                        .unwrap(),
+                    InteractableType::Ghost => {
+                        if this.info.ghost_class.is_none() {
+                            spawner
+                                .spawn_local(wrap_dialogue(ghost_meeting(self.clone(), entity)))
+                                .unwrap()
+                        } else {
+                            spawner
+                                .spawn_local(wrap_dialogue(ghost_after(self.clone())))
+                                .unwrap();
+                        }
+                    }
+                },
+            }
         }
     }
 
@@ -727,6 +923,10 @@ impl Game {
     fn end_dialogue(&self) {
         let mut this = self.0.borrow_mut();
         this.dialogue.shown = false;
+        this.dialogue.portrait = None;
+        this.dialogue.choices = None;
+        this.dialogue.current_choice = 0;
+        this.dialogue.waiting_for = WaitingFor::Nothing;
     }
 
     // fn dialogue_mut(&self) -> RefMut<Dialogue> {
@@ -740,9 +940,233 @@ enum Portrait {
     Ghost,
 }
 
-async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
+async fn lamp_dialogue_tree(game: Game) -> anyhow::Result<()> {
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    game.show_portrait(m);
+    game.show_text("IT'S A LAMP.").await?;
+    game.show_text("I WISH IT WERE A BIT BRIGHTER...").await?;
+    game.end_dialogue();
+    Ok(())
+}
+
+async fn ghost_customize_player_class(game: Game) -> anyhow::Result<()> {
     let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
     let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    let player_class_id = game
+        .show_choice(["A WITCH", "A PRINCESS", "A KNIGHT"])
+        .await?;
+    let player_class = match player_class_id {
+        0 => PlayerClass::Witch,
+        1 => PlayerClass::Princess,
+        _ => PlayerClass::Knight,
+    };
+    match player_class {
+        PlayerClass::Witch => {
+            game.show_portrait(m);
+            game.show_text("I AM THE GREAT WITCH, MARIBELLE.\nYOU ARE A SERVANT I HAVE CONJURED.")
+                .await?;
+            game.show_portrait(g);
+            game.show_text("WOW! YOU CREATED ME?\nYOUR MAGIC IS REALLY POWERFUL!")
+                .await?;
+        }
+        PlayerClass::Princess => {
+            game.show_portrait(m);
+            game.show_text("I AM THE CROWN PRINCESS, MARIBELLE.\nYOU ARE MY LOYAL SUBJECT.")
+                .await?;
+            game.show_portrait(g);
+            game.show_text("THE PRINCESS? WHAT AN HONOR!\nYOUR WISH IS MY COMMAND, HIGHNESS!")
+                .await?;
+        }
+        PlayerClass::Knight => {
+            game.show_portrait(m);
+            game.show_text("I AM THE QUESTING KNIGHT, MARIBELLE.\nWOULD YOU LIKE TO BE MY SQUIRE?")
+                .await?;
+            game.show_portrait(g);
+            game.show_text("OF COURSE!\nI ALWAYS WANTED TO GO QUESTING!")
+                .await?;
+        }
+    }
+    game.end_dialogue();
+    game.0.borrow_mut().info.player_class = Some(player_class);
+    Ok(())
+}
+
+async fn ghost_customize_ghost_class(game: Game) -> anyhow::Result<()> {
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    let player_class = game.0.borrow().info.player_class.unwrap();
+    let ghost_class_id = game.show_choice(["A GHOST", "A GOBLIN", "A DWARF"]).await?;
+    let ghost_class = match ghost_class_id {
+        0 => GhostClass::Ghost,
+        1 => GhostClass::Goblin,
+        _ => GhostClass::Dwarf,
+    };
+    match ghost_class {
+        GhostClass::Ghost => {
+            game.show_portrait(m);
+            game.show_text("YOU ARE A FORGOTTEN SPIRIT,\nBROUGHT BACK BY POWERFUL NECROMANCY.")
+                .await?;
+            match player_class {
+                PlayerClass::Witch => {
+                    game.show_portrait(g);
+                    game.show_text("OOOOOO!\nTHANKS FOR BRINGING ME BACK!")
+                        .await?;
+                }
+                _ => {
+                    game.show_portrait(g);
+                    game.show_text("OOOOOOO!\nSPOOKY!").await?;
+                }
+            }
+        }
+        GhostClass::Goblin => {
+            game.show_portrait(m);
+            game.show_text("YOU ARE A GOBLIN TROUBLEMAKER,\nTERRORIZING THE LAND.")
+                .await?;
+            match player_class {
+                PlayerClass::Knight => {
+                    game.show_portrait(g);
+                    game.show_text("NYEHEHEH!  I HOPE THERE'S\nNO HARD FEELINGS, MS. KNIGHT!")
+                        .await?;
+                }
+                _ => {
+                    game.show_portrait(g);
+                    game.show_text("NYEHEHEH!\nSOUNDS FUN!").await?;
+                }
+            }
+        }
+        GhostClass::Dwarf => {
+            game.show_portrait(m);
+            game.show_text("YOU ARE A DWARVEN WARRIOR,\nWISE AND STRONG.")
+                .await?;
+            match player_class {
+                PlayerClass::Princess => {
+                    game.show_portrait(g);
+                    game.show_text("AYE, MY LIEGE!\nI ALWAYS WANTED TO SAY THAT!")
+                        .await?;
+                }
+                _ => {
+                    game.show_portrait(g);
+                    game.show_text("AYE, THAT I AM!\nI HOPE I GET A COOL BEARD!")
+                        .await?;
+                }
+            }
+        }
+    }
+    game.0.borrow_mut().info.ghost_class = Some(ghost_class);
+    game.end_dialogue();
+    Ok(())
+}
+
+async fn ghost_after(game: Game) -> anyhow::Result<()> {
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    let player_class = game.0.borrow().info.player_class.unwrap();
+    game.show_portrait(g);
+    game.show_text_auto(format!(
+        "ANYTHING YOU WANT TO TALK ABOUT,\n{}?",
+        player_class.ghost_title()
+    ))
+    .await?;
+    loop {
+        let choice = game.show_choice(["NOTHING", "US", "FIREBOLT"]).await?;
+        match choice {
+            0 => {
+                game.show_text(
+                    "THAT'S OKAY.  LET ME KNOW\nIF THERE'S ANYTHING YOU WANT TO CHANGE!",
+                )
+                .await?;
+                game.end_dialogue();
+                return Ok(());
+            }
+            1 => {
+                game.show_text_auto("WHICH OF US DO YOU WANT\nTO TALK ABOUT?")
+                    .await?;
+                let choice = game.show_choice(["NEVERMIND", "ME", "YOU"]).await?;
+                match choice {
+                    0 => {
+                        game.show_text_auto("OH, OKAY!\nWAS THERE ANYTHING ELSE?")
+                            .await?;
+                        continue;
+                    }
+                    1 => {
+                        game.show_portrait(m);
+                        game.show_text("I WANT TO BE SOMEONE DIFFERENT.").await?;
+                        game.show_portrait(g);
+                        game.show_text_auto("OKAY THEN!\nWHO ARE YOU?").await?;
+                        ghost_customize_player_class(game.clone()).await?;
+                        game.show_portrait(g);
+                        game.show_text_auto("IS THERE ANYTHING ELSE\nYOU WANT TO TALK ABOUT?")
+                            .await?;
+                        continue;
+                    }
+                    _ => {
+                        game.show_portrait(m);
+                        game.show_text("I WANT YOU TO BE SOMEONE ELSE.").await?;
+                        game.show_portrait(g);
+                        game.show_text("COOL!\nA CHANGE IS ALWAYS NICE.").await?;
+                        game.show_text_auto("UMM... WHAT AM I, EXACTLY?").await?;
+                        ghost_customize_ghost_class(game.clone()).await?;
+                        game.show_portrait(g);
+                        game.show_text_auto("IS THERE ANYTHING ELSE\nYOU WANT TO TALK ABOUT?")
+                            .await?;
+                        continue;
+                    }
+                }
+            }
+            _ => {
+                firebolt_dialogue_tree(game.clone()).await?;
+                game.show_portrait(g);
+                game.show_text_auto("IS THERE ANYTHING ELSE\nYOU WANT TO TALK ABOUT?")
+                    .await?;
+                continue;
+            }
+        }
+    }
+}
+
+async fn ghost_meeting(game: Game, ghost: Entity) -> anyhow::Result<()> {
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    game.show_portrait(g);
+    game.show_text_auto("HI THERE!\nWHO ARE YOU?").await?;
+    ghost_customize_player_class(game.clone()).await?;
+    game.show_portrait(g);
+    game.show_text_auto("COME TO THINK OF IT...\nWHAT AM I, EXACTLY?")
+        .await?;
+    ghost_customize_ghost_class(game.clone()).await?;
+
+    let player_class = game.0.borrow().info.player_class.unwrap();
+    let ghost_class = game.0.borrow().info.ghost_class.unwrap();
+    game.show_portrait(g);
+    game.show_text(format!(
+        "WELL THEN, {} MARIBELLE,\nI'LL FOLLOW YOU! {}!",
+        player_class.str(),
+        ghost_class.affectation()
+    ))
+    .await?;
+    game.end_dialogue();
+    let player = game.0.borrow().overworld.player;
+    game.0
+        .borrow_mut()
+        .overworld
+        .world
+        .insert_one(
+            ghost,
+            FollowComponent {
+                target: player,
+                max_distance: 64.0,
+                speed: 1.0,
+            },
+        )
+        .unwrap();
+
+    Ok(())
+}
+
+async fn firebolt_dialogue_tree(game: Game) -> anyhow::Result<()> {
+    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
+    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
+    let player_class = game.0.borrow().info.player_class.unwrap();
     game.show_portrait(g);
     game.show_text_auto("WOW!  SO THIS SPELL IS CALLED FIREBOLT!\nHOW STRONG IS IT?")
         .await?;
@@ -756,8 +1180,11 @@ async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
                 game.show_text("IT'S SUPER STRONG.\nIT COULD PROBABLY KILL A DRAGON.")
                     .await?;
                 game.show_portrait(g);
-                game.show_text("WOW! THAT'S SO COOL!\nYOU MUST BE A POWERFUL WITCH!")
-                    .await?;
+                game.show_text(format!(
+                    "WOW! THAT'S SO COOL!\nYOU MUST BE A POWERFUL {}!",
+                    player_class.str()
+                ))
+                .await?;
                 game.show_text("SINCE IT'S SO STRONG,\nHOW MUCH MANA DOES IT COST?")
                     .await?;
             }
@@ -783,7 +1210,7 @@ async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
             }
         }
         let cost = game
-            .show_choice(["LOADS OF MANA", "NOT TOO MUCH", "BARELY ANY"])
+            .show_choice(["LOTS OF MANA", "NOT TOO MUCH", "BARELY ANY"])
             .await?;
         match cost {
             0 => {
@@ -797,8 +1224,11 @@ async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
                             .await?;
                     }
                     1 => {
-                        game.show_text("WOW. BEING A WITCH IS HARD...\nYOU'RE SO COOL!")
-                            .await?;
+                        game.show_text(format!(
+                            "WOW. BEING A {} IS HARD...\nYOU'RE SO COOL!",
+                            player_class.str()
+                        ))
+                        .await?;
                     }
                     _ => {
                         game.show_text("WOW, THAT MUCH?\nMAYBE THIS SPELL ISN'T SO GOOD...")
@@ -878,7 +1308,6 @@ async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
         }
     };
 
-    game.show_text("ANYWAY, BYE FOR NOW!").await.unwrap();
     game.end_dialogue();
 
     Ok(())
@@ -907,17 +1336,11 @@ async fn main() {
         .unwrap();
     let mut pool = futures::executor::LocalPool::new();
     let spawner = pool.spawner();
-    let mut dialogue = false;
+    // let mut dialogue = false;
+    let mut editor_enabled = false;
 
     loop {
         clear_background(DARK);
-
-        if is_key_pressed(KeyCode::R) {
-            match assets.reload().await {
-                Ok(()) => {}
-                Err(e) => println!("Failed to reload assets: {:?}", e),
-            };
-        }
 
         // set_camera(&camera);
 
@@ -925,14 +1348,31 @@ async fn main() {
         // overworld.draw(&assets);
         game.update(&assets, &spawner);
         game.draw(&assets);
-        if !dialogue {
-            spawner
-                .spawn_local(wrap_dialogue(demo_dialogue_tree(game.clone())))
-                .unwrap();
-            dialogue = true;
+        // if !dialogue {
+        //     spawner
+        //         .spawn_local(wrap_dialogue(firebolt_dialogue_tree(game.clone())))
+        //         .unwrap();
+        //     dialogue = true;
+        // }
+
+        if is_key_down(KeyCode::LeftShift) {
+            if is_key_pressed(KeyCode::I) {
+                game.end_dialogue();
+            }
+            if is_key_pressed(KeyCode::J) {
+                editor_enabled = !editor_enabled;
+            }
+            if is_key_pressed(KeyCode::R) {
+                match assets.reload().await {
+                    Ok(()) => {}
+                    Err(e) => println!("Failed to reload assets: {:?}", e),
+                };
+            }
         }
 
-        editor.update(&assets, &game).await;
+        if editor_enabled {
+            editor.update(&assets, &game).await;
+        }
 
         pool.run_until_stalled();
         next_frame().await

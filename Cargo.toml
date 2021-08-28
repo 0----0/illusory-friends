@@ -1,5 +1,5 @@
 [package]
-name = "safe"
+name = "illusory_friends"
 version = "0.1.0"
 edition = "2018"
 
@@ -24,3 +24,6 @@ arrayvec = { version = "*", features = ["serde"] }
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.release]
+opt-level = 2
