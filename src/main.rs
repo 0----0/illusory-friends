@@ -12,11 +12,6 @@ use futures::Future;
 use hecs::{Entity, World};
 use macroquad::prelude::*;
 
-use arrayvec::ArrayString;
-type Ustr = ArrayString<32>;
-fn ustr(s: &str) -> Ustr {
-    Ustr::from(s).unwrap()
-}
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -26,6 +21,9 @@ mod assets;
 mod colors;
 mod editor;
 mod types;
+mod ustr;
+
+use ustr::*;
 
 use assets::Assets;
 use assets::{AnimatedSpriteId, TextureId};

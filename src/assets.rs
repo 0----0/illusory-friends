@@ -1,26 +1,18 @@
-use arrayvec::ArrayString;
+use crate::ustr::*;
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use futures::{future::try_join_all, try_join};
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-type Ustr = ArrayString<32>;
-type UstrMap<V> = HashMap<Ustr, V>;
-
-fn ustr(s: &str) -> Ustr {
-    Ustr::from(s).unwrap()
-}
 
 mod animated_sprite;
 
 pub use animated_sprite::AnimatedSprite;
 
 use crate::SpriteComponent;
-// use ustr::UstrMap;
 
 #[async_trait]
 pub trait Asset {
