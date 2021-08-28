@@ -8,6 +8,7 @@ use bmfont::CharPosition;
 use colors::DARK;
 use futures::executor::LocalSpawner;
 use futures::task::LocalSpawnExt;
+use futures::Future;
 use hecs::{Entity, World};
 use macroquad::prelude::*;
 
@@ -439,34 +440,6 @@ impl Dialogue {
         self.current_progress = 0;
     }
 
-    fn show_text<S>(&mut self, text: S, auto: bool) -> futures::channel::oneshot::Receiver<()>
-    where
-        S: Into<String>,
-    {
-        self.set_text(text.into());
-        let (s, r) = futures::channel::oneshot::channel();
-        self.waiting_for = match auto {
-            false => WaitingFor::Confirm(s),
-            true => WaitingFor::Auto(s),
-        };
-        r
-    }
-
-    fn show_choice(
-        &mut self,
-        choices: impl IntoIterator<Item = impl Into<String>>,
-    ) -> futures::channel::oneshot::Receiver<usize> {
-        self.choices = Some(choices.into_iter().map(Into::into).collect());
-        self.current_choice = 0;
-        let (s, r) = futures::channel::oneshot::channel();
-        self.waiting_for = WaitingFor::Choice(s);
-        r
-    }
-
-    fn end(&mut self) {
-        self.shown = false;
-    }
-
     fn update(&mut self) {
         self.current_progress += 1;
         if let Some(choices) = &self.choices {
@@ -799,132 +772,108 @@ async fn basic_dialogue_tree(game: Game) {
     game.end_dialogue();
 }
 
-async fn demo_dialogue_tree(game: Game) {
-    // let game = game_static.get().unwrap();
+async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {
     let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
     let g = Some((Portrait::Ghost, PortraitOrientation::Left));
     game.show_portrait(g);
     game.show_text_auto("WOW!  SO THIS SPELL IS CALLED FIREBOLT!\nHOW STRONG IS IT?")
-        .await
-        .unwrap();
+        .await?;
     let (strength, cost) = loop {
         let strength = game
             .show_choice(["VERY STRONG", "IT'S OK", "IT'S WEAK"])
-            .await
-            .unwrap();
+            .await?;
         match strength {
             0 => {
                 game.show_portrait(m);
                 game.show_text("IT'S SUPER STRONG.\nIT COULD PROBABLY KILL A DRAGON.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 game.show_text("WOW! THAT'S SO COOL!\nYOU MUST BE A POWERFUL WITCH!")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_text("SINCE IT'S SO STRONG,\nHOW MUCH MANA DOES IT COST?")
-                    .await
-                    .unwrap();
+                    .await?;
             }
             1 => {
                 game.show_portrait(m);
                 game.show_text("IT'S NOTHING SPECIAL.\nAN EVERYDAY SPELL FOR ME.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 game.show_text("THAT'S NEAT!\nI BET YOU STUDIED HARD TO LEARN IT.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_text("SO SINCE IT'S AVERAGE STRENGTH,\nHOW MUCH MANA DOES IT COST?")
-                    .await
-                    .unwrap();
+                    .await?;
             }
             _ => {
                 game.show_portrait(m);
                 game.show_text("IT'S SUPER WEAK.\nI'M STILL LEARNING BETTER SPELLS...")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 game.show_text("AW, THAT'S OKAY.\nI BET YOU'LL GET STRONGER IN NO TIME!")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_text("SO SINCE IT'S PRETTY WEAK,\nHOW MUCH MANA DOES IT COST?")
-                    .await
-                    .unwrap();
+                    .await?;
             }
         }
         let cost = game
             .show_choice(["LOADS OF MANA", "NOT TOO MUCH", "BARELY ANY"])
-            .await
-            .unwrap();
+            .await?;
         match cost {
             0 => {
                 game.show_portrait(m);
                 game.show_text("TONS.\nONLY THE MOST POWERFUL CAN WIELD IT.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 match strength {
                     0 => {
                         game.show_text("WHOA. THAT'S ONLY FITTING\nFOR SUCH A POWERFUL SPELL!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                     1 => {
                         game.show_text("WOW. BEING A WITCH IS HARD...\nYOU'RE SO COOL!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                     _ => {
                         game.show_text("WOW, THAT MUCH?\nMAYBE THIS SPELL ISN'T SO GOOD...")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                 }
             }
             1 => {
                 game.show_portrait(m);
                 game.show_text("NOT TOO MUCH.\nI CAN HANDLE IT, EASY.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 match strength {
                     0 => {
                         game.show_text("SUCH AN EFFICIENT SPELL!\nYOU'RE SO SMART!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                     1 => {
                         game.show_text("THAT'S A GREAT SPELL TO START WITH.\nGOOD THINKING!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                     _ => {
                         game.show_text("IT SOUNDS HARD TO USE,\nBUT I BET YOU'LL DO GREAT!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                 }
             }
             _ => {
                 game.show_portrait(m);
                 game.show_text("IT'S SUPER CHEAP.\nI CAN CAST IT ALL DAY.")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_portrait(g);
                 match strength {
                     0 => {
-                        game.show_text("WOW... IS THAT THE STRONGEST SPELL?\nTHAT'S AMAZING! THIS'LL BE A BREEZE!").await.unwrap();
+                        game.show_text("WOW... IS THAT THE STRONGEST SPELL?\nTHAT'S AMAZING! THIS'LL BE A BREEZE!").await?;
                     }
                     1 => {
                         game.show_text("THAT'S GREAT! WE CAN GO\nON A WHILE WITHOUT RESTING!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                     _ => {
                         game.show_text("THAT MAKES SENSE.\nIT'S GREAT TO HAVE OPTIONS!")
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                 }
             }
@@ -943,23 +892,19 @@ async fn demo_dialogue_tree(game: Game) {
             "SO FIREBOLT IS {} SPELL THAT\nCOSTS {} MANA. ARE YOU SURE?",
             strength_str, cost_str
         ))
-        .await
-        .unwrap();
-        let confirm = game.show_choice(["YES", "ACTUALLY..."]).await.unwrap();
+        .await?;
+        let confirm = game.show_choice(["YES", "ACTUALLY..."]).await?;
         match confirm {
             0 => {
                 game.show_text("GREAT! REMEMBER,\nYOU CAN ALWAYS CHANGE YOUR MIND!")
-                    .await
-                    .unwrap();
+                    .await?;
                 break (strength, cost);
             }
             _ => {
                 game.show_text("OH, WANNA GO OVER IT AGAIN?\nTHAT'S OKAY!")
-                    .await
-                    .unwrap();
+                    .await?;
                 game.show_text("SO THIS SPELL IS CALLED FIREBOLT!\nHOW STRONG IS IT?")
-                    .await
-                    .unwrap();
+                    .await?;
                 continue;
             }
         }
@@ -967,6 +912,18 @@ async fn demo_dialogue_tree(game: Game) {
 
     game.show_text("ANYWAY, BYE FOR NOW!").await.unwrap();
     game.end_dialogue();
+
+    Ok(())
+}
+
+async fn wrap_dialogue(dialogue: impl Future<Output = anyhow::Result<()>>) {
+    match dialogue.await {
+        Ok(()) => (),
+        Err(e) => {
+            debug!("{:?}", e);
+            ()
+        }
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -1002,7 +959,7 @@ async fn main() {
         game.draw(&assets);
         if !dialogue {
             spawner
-                .spawn_local(demo_dialogue_tree(game.clone()))
+                .spawn_local(wrap_dialogue(demo_dialogue_tree(game.clone())))
                 .unwrap();
             dialogue = true;
         }
