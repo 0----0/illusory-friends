@@ -1,7 +1,7 @@
 #![feature(result_cloned)]
 #![feature(option_get_or_insert_default)]
 
-use std::cell::{RefCell, RefMut};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use bmfont::CharPosition;
@@ -740,36 +740,6 @@ impl Game {
 enum Portrait {
     Maribelle,
     Ghost,
-}
-
-async fn basic_dialogue_tree(game: Game) {
-    // let game = game_static.get().unwrap();
-    let m = Some((Portrait::Maribelle, PortraitOrientation::Right));
-    let g = Some((Portrait::Ghost, PortraitOrientation::Left));
-    game.show_text("HI!").await.unwrap();
-    game.show_portrait(m);
-    game.show_text("WHO ARE YOU?").await.unwrap();
-    game.show_portrait(g);
-    game.show_text("BOO!").await.unwrap();
-    game.show_text("HOW YA DOIN?").await.unwrap();
-    game.show_text_auto("NEAT.\nDOES THIS WORK?").await.unwrap();
-    let choice = game.show_choice(["YES", "NO"]).await.unwrap();
-    match choice {
-        0 => {
-            game.show_portrait(m);
-            game.show_text("YEAH, CHOICES WORK.").await.unwrap();
-            game.show_portrait(g);
-            game.show_text("NICE!\nI'M GLAD.").await.unwrap();
-        }
-        _ => {
-            game.show_portrait(m);
-            game.show_text("NOPE. DOESN'T WORK.").await.unwrap();
-            game.show_portrait(g);
-            game.show_text("DANG.\nTHAT SUCKS.").await.unwrap();
-        }
-    }
-    game.show_text("ANYWAY, BYE.").await.unwrap();
-    game.end_dialogue();
 }
 
 async fn demo_dialogue_tree(game: Game) -> anyhow::Result<()> {

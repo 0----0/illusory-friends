@@ -221,7 +221,7 @@ impl Assets {
     {
         TextureId::TextureId(
             id.try_into()
-                .map_err(|e| String::from("Texture ID too big"))
+                .map_err(|_e| String::from("Texture ID too big"))
                 .unwrap(),
         )
     }
